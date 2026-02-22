@@ -31,6 +31,8 @@ export default function TeleprompterPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [fontSize, setFontSize] = useState(2.2);
   const [overlayWidth, setOverlayWidth] = useState(85);
+  const [speechError, setSpeechError] = useState<string | null>(null);
+  const [debugTranscript, setDebugTranscript] = useState("");
 
   const tracker = useScriptTracker();
   const wordRefs = useRef<(HTMLSpanElement | null)[]>([]);
@@ -53,8 +55,17 @@ export default function TeleprompterPage() {
 
   const speech = useSpeechRecognition({
     lang,
-    onInterimResult: handleInterim,
-    onFinalResult: handleFinal,
+    onInterimResult: (t) => {
+      setDebugTranscript(`interim: ${t}`);
+      handleInterim(t);
+    },
+    onFinalResult: (t) => {
+      setDebugTranscript(`final: ${t}`);
+      handleFinal(t);
+    },
+    onError: (e) => {
+      setSpeechError(e);
+    },
   });
 
   // Re-tokenize if script text changes while in present mode (edge case)
@@ -81,6 +92,8 @@ export default function TeleprompterPage() {
   }, [tracker.isComplete]);
 
   function handlePlay() {
+    setSpeechError(null);
+    setDebugTranscript("");
     // FIX: set tokens synchronously BEFORE starting speech recognition.
     // Previously setScript was called inside a useEffect triggered by the mode change,
     // which runs after the browser paint. On mobile (mic already permitted), recognition
@@ -190,6 +203,22 @@ export default function TeleprompterPage() {
           </div>
         )}
       </div>
+
+
+      {(speechError || mode === "present") && (
+        <div style={{ width: `${overlayWidth}%`, maxWidth: 900 }}>
+          {speechError && (
+            <div style={{ color: "#fca5a5", fontSize: 12, marginTop: 8 }}>
+              Mic/Speech error: {speechError}
+            </div>
+          )}
+          <div style={{ color: "#94a3b8", fontSize: 11, marginTop: 6 }}>
+            status: {speech.status} | supported: {String(speech.isSupported)} | secure:{" "}
+            {String(typeof window !== "undefined" ? window.isSecureContext : false)}
+            {debugTranscript ? ` | ${debugTranscript}` : ""}
+          </div>
+        </div>
+      )}
 
       {/* ── Main Area ── */}
       <main className="main" style={{ width: `${overlayWidth}%` }}>
