@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# package manager lockfiles (optional — remove if you want to commit lock file)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# env files
+.env
+.env*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Next.js generated
+next-env.d.ts
