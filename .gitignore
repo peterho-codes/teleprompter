@@ -6,7 +6,6 @@ node_modules/
 out/
 
 # package manager lockfiles (optional — remove if you want to commit lock file)
-package-lock.json
 yarn.lock
 pnpm-lock.yaml
 
@@ -20,3 +19,4 @@ Thumbs.db
 
 # Next.js generated
 next-env.d.ts
+
