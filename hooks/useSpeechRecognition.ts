@@ -9,7 +9,6 @@ export interface SpeechRecognitionOptions {
   onError?: (error: string) => void;
 }
 
-// Inline Web Speech API types (not in default TS lib)
 interface ISpeechRecognition extends EventTarget {
   continuous: boolean;
   interimResults: boolean;
@@ -21,6 +20,9 @@ interface ISpeechRecognition extends EventTarget {
   onresult: ((event: ISpeechRecognitionEvent) => void) | null;
   onerror: ((event: ISpeechRecognitionErrorEvent) => void) | null;
   onend: (() => void) | null;
+  onaudiostart?: (() => void) | null;
+  onsoundstart?: (() => void) | null;
+  onspeechstart?: (() => void) | null;
 }
 
 interface ISpeechRecognitionEvent {
@@ -64,7 +66,6 @@ export function useSpeechRecognition(options: SpeechRecognitionOptions = {}) {
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isStartingRef = useRef(false);
 
-  // Latest callback refs (avoid stale closures)
   const onInterimRef = useRef(onInterimResult);
   const onFinalRef = useRef(onFinalResult);
   const onErrorRef = useRef(onError);
@@ -97,11 +98,13 @@ export function useSpeechRecognition(options: SpeechRecognitionOptions = {}) {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // Release immediately — just warming permission/device
       stream.getTracks().forEach((t) => t.stop());
+
+      // Important on some Android devices: give hardware/audio stack time to release
+      await new Promise((r) => setTimeout(r, 250));
     } catch {
       onErrorRef.current?.(
-        "Microphone access failed. On Android Chrome, use HTTPS (or localhost) and allow mic permission."
+        "Microphone access failed. On Android Chrome, use HTTPS and allow mic permission."
       );
       throw new Error("mic-permission-failed");
     }
@@ -113,7 +116,6 @@ export function useSpeechRecognition(options: SpeechRecognitionOptions = {}) {
     const API = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!API) return;
 
-    // Prevent start/stop thrash on mobile
     if (isStartingRef.current) return;
     isStartingRef.current = true;
 
@@ -125,13 +127,12 @@ export function useSpeechRecognition(options: SpeechRecognitionOptions = {}) {
     }
 
     const rec = new API();
-
     const isAndroid =
       typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
 
-    rec.continuous = true;
-    // Android Chrome is often more stable without interim results
-    rec.interimResults = !isAndroid;
+    // Android-safe settings
+    rec.continuous = isAndroid ? false : true;
+    rec.interimResults = isAndroid ? false : true;
     rec.lang = lang;
     rec.maxAlternatives = 1;
 
@@ -150,47 +151,47 @@ export function useSpeechRecognition(options: SpeechRecognitionOptions = {}) {
     };
 
     rec.onerror = (event: ISpeechRecognitionErrorEvent) => {
-      // Common mobile noise; ignore unless persistent
-      if (event.error === "no-speech" || event.error === "aborted") return;
+      // Android throws these frequently during restart cycles
+      if (event.error === "aborted" || event.error === "no-speech") return;
 
       if (event.error === "not-allowed") {
-        onErrorRef.current?.(
-          "Microphone permission denied. Please allow mic access in Chrome settings."
-        );
+        onErrorRef.current?.("Microphone permission denied in Chrome.");
         updateStatus("idle");
         return;
       }
 
       if (event.error === "service-not-allowed") {
+        onErrorRef.current?.("Speech service is not allowed on this device/browser.");
+        updateStatus("idle");
+        return;
+      }
+
+      if (event.error === "language-not-supported") {
         onErrorRef.current?.(
-          "Speech recognition service not allowed on this device/browser."
+          `Language "${lang}" is not supported by this device speech engine. Try en-US.`
         );
         updateStatus("idle");
         return;
       }
 
       if (event.error === "network") {
-        onErrorRef.current?.(
-          "Speech recognition network error. Android Chrome may require a stable connection."
-        );
+        onErrorRef.current?.("Speech recognition network error. Check internet connection.");
       } else {
         onErrorRef.current?.(`Speech recognition error: ${event.error}`);
       }
-
-      console.warn("Speech recognition error:", event.error);
     };
 
     rec.onend = () => {
       isStartingRef.current = false;
 
-      // Only auto-restart if user still expects listening mode
+      // Android-safe restart loop (sentence-by-sentence)
       if (statusRef.current === "listening") {
         clearRestartTimer();
         restartTimerRef.current = setTimeout(() => {
           if (statusRef.current === "listening") {
             createAndStart();
           }
-        }, 700); // mobile-friendly restart delay (was too aggressive at 150ms)
+        }, 1000);
       }
     };
 
@@ -200,28 +201,22 @@ export function useSpeechRecognition(options: SpeechRecognitionOptions = {}) {
       rec.start();
     } catch (e) {
       isStartingRef.current = false;
-      console.warn("Recognition start error:", e);
       onErrorRef.current?.(
-        "Could not start speech recognition. Try reloading the page and allowing microphone access."
+        "Could not start speech recognition. Try reloading page and tapping Allow microphone."
       );
+      console.warn("Recognition start failed:", e);
     }
   }, [lang, updateStatus, clearRestartTimer]);
 
   const start = useCallback(async () => {
     if (!isSupported) {
       updateStatus("unsupported");
-      onErrorRef.current?.(
-        "SpeechRecognition is not supported in this browser. Try Chrome or Edge."
-      );
+      onErrorRef.current?.("SpeechRecognition not supported in this browser.");
       return;
     }
 
-    // Android Chrome often needs secure context (HTTPS / localhost)
     if (typeof window !== "undefined" && !window.isSecureContext) {
-      onErrorRef.current?.(
-        "This page is not in a secure context. On Android Chrome, speech/mic usually requires HTTPS (or localhost)."
-      );
-      // Continue anyway; some setups may still work
+      onErrorRef.current?.("Not a secure context. Use HTTPS.");
     }
 
     try {
@@ -234,7 +229,7 @@ export function useSpeechRecognition(options: SpeechRecognitionOptions = {}) {
     clearRestartTimer();
     updateStatus("listening");
     createAndStart();
-  }, [isSupported, updateStatus, createAndStart, ensureMicPermission, clearRestartTimer]);
+  }, [isSupported, updateStatus, ensureMicPermission, clearRestartTimer, createAndStart]);
 
   const stop = useCallback(() => {
     clearRestartTimer();
@@ -242,7 +237,6 @@ export function useSpeechRecognition(options: SpeechRecognitionOptions = {}) {
 
     if (recognitionRef.current) {
       try {
-        // stop() is nicer on mobile than abort() (lets engine finalize cleanly)
         recognitionRef.current.stop();
       } catch {}
       recognitionRef.current = null;
@@ -270,12 +264,6 @@ export function useSpeechRecognition(options: SpeechRecognitionOptions = {}) {
       return;
     }
 
-    if (typeof window !== "undefined" && !window.isSecureContext) {
-      onErrorRef.current?.(
-        "This page is not in a secure context. On Android Chrome, speech/mic usually requires HTTPS (or localhost)."
-      );
-    }
-
     try {
       await ensureMicPermission();
     } catch {
@@ -286,7 +274,7 @@ export function useSpeechRecognition(options: SpeechRecognitionOptions = {}) {
     clearRestartTimer();
     updateStatus("listening");
     createAndStart();
-  }, [isSupported, updateStatus, createAndStart, ensureMicPermission, clearRestartTimer]);
+  }, [isSupported, updateStatus, ensureMicPermission, clearRestartTimer, createAndStart]);
 
   useEffect(() => {
     return () => {

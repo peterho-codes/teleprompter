@@ -31,8 +31,6 @@ export default function TeleprompterPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [fontSize, setFontSize] = useState(2.2);
   const [overlayWidth, setOverlayWidth] = useState(85);
-  const [speechError, setSpeechError] = useState<string | null>(null);
-  const [debugTranscript, setDebugTranscript] = useState("");
 
   const tracker = useScriptTracker();
   const wordRefs = useRef<(HTMLSpanElement | null)[]>([]);
@@ -203,22 +201,6 @@ export default function TeleprompterPage() {
           </div>
         )}
       </div>
-
-
-      {(speechError || mode === "present") && (
-        <div style={{ width: `${overlayWidth}%`, maxWidth: 900 }}>
-          {speechError && (
-            <div style={{ color: "#fca5a5", fontSize: 12, marginTop: 8 }}>
-              Mic/Speech error: {speechError}
-            </div>
-          )}
-          <div style={{ color: "#94a3b8", fontSize: 11, marginTop: 6 }}>
-            status: {speech.status} | supported: {String(speech.isSupported)} | secure:{" "}
-            {String(typeof window !== "undefined" ? window.isSecureContext : false)}
-            {debugTranscript ? ` | ${debugTranscript}` : ""}
-          </div>
-        </div>
-      )}
 
       {/* ── Main Area ── */}
       <main className="main" style={{ width: `${overlayWidth}%` }}>
